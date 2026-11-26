@@ -1,0 +1,10 @@
+work
+uploads
+outputs
+__pycache__
+*.pyc
+ffmpeg2pass-*
+.git
+README.md
+.venv
+venv

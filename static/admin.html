@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VidPress · Admin</title>
+<link rel="stylesheet" href="/static/style.css">
+<style>
+  .admin-card { max-width: 760px; margin: 0 auto; }
+  .admin-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; flex-wrap: wrap; gap: 10px; }
+  .admin-header h2 { font-size: 22px; }
+  .login-box { max-width: 380px; margin: 40px auto; text-align: center; }
+  .field { margin-bottom: 14px; text-align: left; }
+  .field label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px; text-transform: uppercase; letter-spacing: .05em; font-weight: 600; }
+  .field input { width: 100%; background: #101627; border: 1px solid var(--stroke); border-radius: 10px; padding: 11px 12px; color: var(--txt); font-size: 14px; outline: none; }
+  .field input:focus { border-color: var(--accent); }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; }
+  .chip-info { background: rgba(255,255,255,.04); border: 1px solid var(--stroke); border-radius: 12px; padding: 12px 14px; flex: 1; min-width: 130px; }
+  .chip-info span { font-size: 11px; color: var(--muted); text-transform: uppercase; display: block; }
+  .chip-info b { font-size: 17px; }
+  .botcard { margin-top: 18px; padding: 16px; background: rgba(255,255,255,.03); border: 1px solid var(--stroke); border-radius: 14px; }
+  .status-good { color: #38e09a; }
+  .status-bad { color: var(--danger); }
+  table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 13px; }
+  th { text-align: left; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .05em; padding: 6px 8px; border-bottom: 1px solid var(--stroke); }
+  td { padding: 8px; border-bottom: 1px solid rgba(255,255,255,.04); vertical-align: top; }
+  .tag { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; background: rgba(255,255,255,.07); }
+  .tag.done { background: rgba(56,224,154,.15); color: #38e09a; }
+  .tag.error { background: rgba(255,107,129,.15); color: var(--danger); }
+  .tag.running { background: rgba(110,231,216,.15); color: var(--accent); }
+  .tag.queued { background: rgba(255,176,32,.15); color: #ffb020; }
+  .stderr { margin-top: 6px; font-family: ui-monospace, monospace; font-size: 11px; color: var(--muted); background: rgba(0,0,0,.3); padding: 8px; border-radius: 8px; max-height: 90px; overflow: auto; white-space: pre-wrap; }
+  .note { font-size: 12px; color: var(--muted); margin-top: 10px; }
+  .danger { color: var(--danger); border-color: rgba(255,107,129,.35); }
+  .mt { margin-top: 14px; }
+</style>
+</head>
+<body>
+<div class="bg" aria-hidden="true"><div class="orb orb-a"></div><div class="orb orb-b"></div></div>
+
+<header class="topbar">
+  <a class="brand" href="/">
+    <svg viewBox="0 0 48 48" fill="none" aria-hidden="true">
+      <rect x="6" y="12" width="24" height="24" rx="4" stroke="currentColor" stroke-width="2.4"/>
+      <path d="m30 20 12-6v20l-12-6" fill="currentColor"/>
+    </svg>
+    <span>Vid<em>Press</em> · Admin</span>
+  </a>
+</header>
+
+<main class="shell">
+
+  <section class="card login-box" id="loginCard">
+    <h2 style="font-size:24px;margin-bottom:6px">Admin sign in</h2>
+    <p class="note" style="margin-bottom:18px">Restricted area — enter the admin password.</p>
+    <div class="field">
+      <label>Password</label>
+      <input type="password" id="loginPassword" autocomplete="current-password">
+    </div>
+    <button class="primary" id="loginBtn" style="width:100%" type="button">Sign in</button>
+    <p class="note" id="loginError" style="color:var(--danger)" hidden></p>
+  </section>
+
+  <section class="card admin-card" id="dashCard" hidden>
+    <div class="admin-header">
+      <h2>Dashboard</h2>
+      <button class="ghost" id="logoutBtn" type="button">Log out</button>
+    </div>
+
+    <div class="row">
+      <div class="chip-info"><span>Free memory</span><b id="memVal">—</b></div>
+      <div class="chip-info"><span>Free disk</span><b id="diskVal">—</b></div>
+      <div class="chip-info"><span>Max parallel encodes</span><b id="parVal">—</b></div>
+      <div class="chip-info"><span>Server</span><b id="srvVal" style="font-size:13px">—</b></div>
+    </div>
+
+    <div class="botcard">
+      <strong>Telegram bot</strong>
+      <p class="note" id="botStatus">loading…</p>
+      <div class="field mt">
+        <label>Bot token (from @BotFather)</label>
+        <input type="password" id="botToken" placeholder="123456:ABC-def…" autocomplete="off">
+      </div>
+      <div class="row">
+        <div class="field" style="flex:1;min-width:200px;margin:0">
+          <label>API base URL (optional)</label>
+          <input type="text" id="apiBase" placeholder="https://api.telegram.org" autocomplete="off">
+        </div>
+        <div class="field" style="flex:1;min-width:120px;margin:0">
+          <label>Max download (MB)</label>
+          <input type="number" id="maxDl" min="1" max="2000" value="200">
+        </div>
+      </div>
+      <div class="row" style="margin-top:12px">
+        <div class="field" style="flex:1;min-width:180px;margin:0">
+          <label>Telegram api_id (optional)</label>
+          <input type="text" id="apiId" placeholder="123456" autocomplete="off">
+        </div>
+        <div class="field" style="flex:1;min-width:220px;margin:0">
+          <label>Telegram api_hash (optional)</label>
+          <input type="password" id="apiHash" placeholder="from my.telegram.org" autocomplete="off">
+        </div>
+      </div>
+      <p class="note" id="largeStatus">📍 Set <b>api_id</b> + <b>api_hash</b> (from <a href="https://my.telegram.org" target="_blank" rel="noopener" style="color:var(--accent)">my.telegram.org</a>) to enable <b>large files (&gt;20 MB)</b> via the Telethon MTProto client.</p>
+      <p class="note">For files &gt;20 MB, run a Telegram <b>Local Bot API server</b> (using your own api_id/api_hash from my.telegram.org) and set its base URL here, e.g. <code>http://localhost:8081</code>.</p>
+      <div class="row">
+        <button class="primary" id="saveBot" type="button">Save &amp; restart bot</button>
+        <button class="ghost danger" id="clearBot" type="button">Remove token</button>
+      </div>
+    </div>
+
+    <div class="mt">
+      <strong>Jobs</strong>
+      <table id="jobsTable">
+        <thead><tr><th>ID</th><th>Status</th><th>Progress</th><th>Original</th><th>Result</th><th></th></tr></thead>
+        <tbody id="jobsBody"><tr><td colspan="6" class="note">Loading…</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<div id="toast" class="toast" role="status"></div>
+<script src="/static/admin.js"></script>
+</body>
+</html>

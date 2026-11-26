@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VidPress · Smart Video Compressor</title>
+<link rel="icon" href="/static/favicon.svg">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="bg" aria-hidden="true">
+  <div class="orb orb-a"></div>
+  <div class="orb orb-b"></div>
+  <div class="orb orb-c"></div>
+</div>
+
+<header class="topbar">
+  <a class="brand" href="/">
+    <svg viewBox="0 0 48 48" fill="none" aria-hidden="true">
+      <rect x="6" y="12" width="24" height="24" rx="4" stroke="currentColor" stroke-width="2.4"/>
+      <path d="m30 20 12-6v20l-12-6" fill="currentColor"/>
+    </svg>
+    <span>Vid<em>Press</em></span>
+  </a>
+  <div class="top-status">
+    <span id="statusDot" class="dot"></span>
+    <span id="statusText">connecting…</span>
+  </div>
+</header>
+
+<main class="shell">
+  <section class="hero">
+    <h1>Compress video <span class="grad">smartly.</span></h1>
+    <p>Quality-first FFmpeg encoding — auto codec choice, two-pass targeting &amp; streaming-ready output.</p>
+  </section>
+
+  <section class="card dropzone" id="dropzone" tabindex="0">
+    <svg class="dz-icon" viewBox="0 0 48 48" fill="none">
+      <path d="M24 34V14m0 0-7 7m7-7 7 7" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M8 34v4a4 4 0 0 0 4 4h24a4 4 0 0 0 4-4v-4" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
+    </svg>
+    <p class="dz-main">Drop a video here</p>
+    <p class="dz-sub">or click to browse · MP4, MOV, MKV, AVI, WebM &amp; more</p>
+    <input type="file" id="fileInput" accept="video/*,.mp4,.mov,.mkv,.avi,.webm,.wmv,.flv,.m4v,.ts,.m2ts,.3gp" hidden>
+  </section>
+
+  <section class="card file-card" id="fileCard" hidden>
+    <div class="file-head">
+      <div class="file-ic">🎬</div>
+      <div>
+        <strong id="fileName">—</strong>
+        <span class="muted" id="fileMeta"></span>
+      </div>
+      <button class="ghost" id="fileChange" type="button">Change</button>
+    </div>
+    <div class="file-stats">
+      <div><span class="stat-label">Size</span><b id="fSize">—</b></div>
+      <div><span class="stat-label">Duration</span><b id="fDur">—</b></div>
+      <div><span class="stat-label">Resolution</span><b id="fRes">—</b></div>
+      <div><span class="stat-label">Video</span><b id="fCodec">—</b></div>
+    </div>
+  </section>
+
+  <section class="card opts-card" id="optsCard" hidden>
+    <div class="opts-grid">
+
+      <div class="opt">
+        <label>Mode</label>
+        <div class="seg" id="modeSeg">
+          <button data-mode="quality" class="on">Quality</button>
+          <button data-mode="size">Target size</button>
+        </div>
+      </div>
+
+      <div class="opt">
+        <label>Codec</label>
+        <select id="codecSel">
+          <option value="h264" selected>H.264 · fastest &amp; universal</option>
+          <option value="hevc">H.265 / HEVC · ~40% smaller</option>
+          <option value="av1">AV1 · best compression, slow</option>
+          <option value="vp9">VP9 · web-friendly</option>
+        </select>
+      </div>
+
+      <div class="opt" id="qualityOpt">
+        <label>Quality <span id="qualityVal" class="pill">70%</span></label>
+        <input type="range" id="quality" min="0" max="100" value="70">
+        <div class="range-labels"><span>smaller</span><span>better</span></div>
+      </div>
+
+      <div class="opt" id="sizeOpt" hidden>
+        <label>Target size</label>
+        <div class="size-input"><input type="number" id="targetSize" min="1" max="2000" step="0.5" value="25"><span>MB</span></div>
+      </div>
+
+      <div class="opt">
+        <label>Speed / efficiency</label>
+        <div class="seg seg3" id="presetSeg">
+          <button data-preset="fast">Fast</button>
+          <button data-preset="balanced" class="on">Balanced</button>
+          <button data-preset="small">Smallest</button>
+        </div>
+      </div>
+
+      <div class="opt">
+        <label>Audio</label>
+        <select id="audioSel">
+          <option value="auto" selected>Auto (copy if already efficient)</option>
+          <option value="aac">AAC 128k</option>
+          <option value="opus">Opus 96k</option>
+          <option value="mp3">MP3 128k</option>
+          <option value="copy">Copy untouched</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="opts-row">
+      <div class="opt inline">
+        <label>Max resolution</label>
+        <select id="resSel">
+          <option value="0" selected>Keep original</option>
+          <option value="3840">4K UHD</option>
+          <option value="2560">1440p (2K)</option>
+          <option value="1920">1080p Full HD</option>
+          <option value="1280">720p HD</option>
+          <option value="854">480p SD</option>
+          <option value="640">360p</option>
+        </select>
+      </div>
+      <div class="opt inline">
+        <label>Optimize for</label>
+        <select id="tuneSel">
+          <option value="">Default</option>
+          <option value="film">Film / cinematic</option>
+          <option value="animation">Screen / animation</option>
+          <option value="grain">Grainy footage</option>
+        </select>
+      </div>
+      <button class="primary" id="compressBtn" type="button">
+        <svg viewBox="0 0 24 24" fill="none"><path d="m4 16 6-6 3 3 7-7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M14 6h5v5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span class="btn-label">Compress</span>
+      </button>
+    </div>
+  </section>
+
+  <section class="card progress-card" id="progressCard" hidden>
+    <div class="prog-head">
+      <span id="stageLabel">preparing…</span>
+      <span id="pctLabel" class="pill">0%</span>
+    </div>
+    <div class="bar"><div id="barFill"></div></div>
+    <div class="prog-sub muted" id="progSub">estimating…</div>
+    <div class="prog-actions">
+      <button class="ghost danger" id="cancelBtn" type="button">Cancel</button>
+    </div>
+  </section>
+
+  <section class="card result-card" id="resultCard" hidden>
+    <div class="result-ok">✓ <span>Compressed</span></div>
+    <div class="compare">
+      <div class="cmp">
+        <span class="stat-label">Original</span>
+        <b id="rOrig">—</b>
+        <span class="muted" id="rOrigMeta"></span>
+      </div>
+      <div class="cmp-arrow">→</div>
+      <div class="cmp">
+        <span class="stat-label">Compressed</span>
+        <b id="rNew" class="grad-txt">—</b>
+        <span class="muted" id="rNewMeta"></span>
+      </div>
+    </div>
+    <div class="savings">
+      <div class="save-ring"><span id="savePct">0%</span></div>
+      <p class="muted">size reduction</p>
+    </div>
+    <div class="result-stats" id="rStats"></div>
+    <div class="note" id="retryNote" hidden>⚡ <b>Auto-optimized:</b> the first pass didn't shrink the file, so the engine re-encoded at higher compression to actually save space.</div>
+    <div class="result-actions">
+      <a class="primary" id="downloadBtn" download>
+        <svg viewBox="0 0 24 24" fill="none"><path d="M12 4v11m0 0 4-4m-4 4-4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 20h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        Download
+      </a>
+      <button class="ghost" id="againBtn" type="button">Compress another</button>
+    </div>
+  </section>
+
+  <section class="card error-card" id="errorCard" hidden>
+    <div class="error-ic">⚠️</div>
+    <p id="errorMsg"></p>
+    <button class="ghost" id="errorClose" type="button">Dismiss</button>
+  </section>
+</main>
+
+<div id="toast" class="toast" role="status"></div>
+
+<footer class="foot muted">VidPress · FFmpeg <span id="ffVersion"></span> · in-browser upload, server-side encode</footer>
+<script src="/static/app.js"></script>
+</body>
+</html>
