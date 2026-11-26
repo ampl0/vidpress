@@ -8,6 +8,9 @@ const els = {
   botStatus: $("#botStatus"), botToken: $("#botToken"),
   apiBase: $("#apiBase"), maxDl: $("#maxDl"), largeStatus: $("#largeStatus"),
   apiId: $("#apiId"), apiHash: $("#apiHash"),
+  progressInterval: $("#progressInterval"), queueMax: $("#queueMax"),
+  defPreset: $("#defPreset"), defDimension: $("#defDimension"), defAudio: $("#defAudio"),
+  defFormat: $("#defFormat"), defCodec: $("#defCodec"), defFps: $("#defFps"),
   saveBot: $("#saveBot"), clearBot: $("#clearBot"),
   jobsBody: $("#jobsBody"), toast: $("#toast"),
 };
@@ -69,6 +72,16 @@ async function populateForm() {
     els.apiId.value = s.telegram_api_id || "";
     els.apiHash.value = "";
     els.apiHash.placeholder = s.telegram_api_hash_set ? "saved: " + s.telegram_api_hash : "from my.telegram.org";
+    els.progressInterval.value = s.progress_interval || 30;
+    els.queueMax.value = s.queue_max || 10;
+    const d = s.default_settings || {};
+    const setSel = (el, opts, cur) => { el.value = cur || ""; };
+    setSel(els.defPreset, null, d.preset || "");
+    setSel(els.defDimension, null, d.dimension || "");
+    setSel(els.defAudio, null, d.audio || "");
+    setSel(els.defFormat, null, d.format || "");
+    setSel(els.defCodec, null, d.codec || "");
+    els.defFps.value = d.fps || 0;
     if (s.telegram_bot_token_set) {
       els.botToken.placeholder = "saved: " + s.telegram_bot_token;
       els.botToken.value = "";
@@ -147,6 +160,17 @@ async function saveBot() {
   if (!isNaN(mb) && mb > 0) body.telegram_max_dl_mb = mb;
   body.telegram_api_id = els.apiId.value.trim();
   body.telegram_api_hash = els.apiHash.value.trim();
+  const interval = parseInt(els.progressInterval.value, 10);
+  if (!isNaN(interval)) body.progress_interval = interval;
+  const qm = parseInt(els.queueMax.value, 10);
+  if (!isNaN(qm)) body.queue_max = qm;
+  const ds = {};
+  for (const [k, el] of [["preset", els.defPreset], ["dimension", els.defDimension], ["audio", els.defAudio], ["format", els.defFormat], ["codec", els.defCodec]]) {
+    if (el.value) ds[k] = el.value;
+  }
+  const fps = parseInt(els.defFps.value, 10);
+  if (!isNaN(fps) && fps > 0) ds.fps = fps;
+  if (Object.keys(ds).length) body.default_settings = ds;
   try {
     await api("/api/admin/settings", {
       method: "PUT", headers: { "Content-Type": "application/json" },

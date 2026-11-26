@@ -15,6 +15,7 @@ import mimetypes
 import os
 import shutil
 import time
+import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -33,6 +34,7 @@ PRESETS = {
     "ultra": {"label": "Ultra Small", "crf": 38, "speed": "ultrafast", "quality": 28},
     "fast": {"label": "⚡ Fast", "crf": 30, "speed": "ultrafast", "quality": 40},
     "superfast": {"label": "🚀 Super Fast", "crf": 36, "speed": "ultrafast", "quality": 30},
+    "normal": {"label": "Normal Speed", "crf": 26, "speed": "medium", "quality": 75},
 }
 
 # One-tap bundles aimed at short clips finishing in roughly 30–60 seconds.
@@ -52,10 +54,25 @@ QUICK_PRESETS = {
         "audio": "aac_64", "format": "mp4", "codec": "h264", "fps": 30,
         "hint": "veryfast · CRF 32 · 30fps · AAC 64k",
     },
+    "normal_original": {
+        "label": "🎞 Normal · Original", "preset": "normal", "dimension": "none",
+        "audio": "aac_128", "format": "mp4", "codec": "h264", "fps": 0,
+        "hint": "medium speed · CRF 26 · original width · AAC 128k",
+    },
+    "fast_original": {
+        "label": "⚡ Fast · Original", "preset": "fast", "dimension": "none",
+        "audio": "aac_96", "format": "mp4", "codec": "h264", "fps": 30,
+        "hint": "ultrafast · CRF 30 · original width · 30fps · AAC 96k",
+    },
+    "small_original": {
+        "label": "🗜 Small · Original", "preset": "low", "dimension": "none",
+        "audio": "aac_64", "format": "mp4", "codec": "h264", "fps": 30,
+        "hint": "veryfast · CRF 32 · original width · 30fps · AAC 64k",
+    },
 }
 
 DIMENSIONS = {
-    "none": {"h": 0, "label": "Original"},
+    "none": {"h": 0, "label": "Original (no scaling)"},
     "240": {"h": 240, "label": "240p"},
     "360": {"h": 360, "label": "360p"},
     "480": {"h": 480, "label": "480p"},
@@ -114,6 +131,14 @@ def _fmt_time(seconds: float) -> str:
     return f"{h}:{m:02d}:{s:02d}" if h else f"{m:02d}:{s:02d}"
 
 
+def _fmt_num(n) -> str:
+    try:
+        f = float(n)
+        return f"{f:.0f}" if f == int(f) else f"{f:.1f}"
+    except (TypeError, ValueError):
+        return str(n)
+
+
 def _fmt_speed(bps: float) -> str:
     if bps <= 0:
         return "—"
@@ -148,6 +173,7 @@ class BotTask:
     chat_id: int
     message_id: int
     kind: str = "video"  # video | audio
+    uid: str = field(default_factory=lambda: uuid.uuid4().hex[:8])
     status_id: int | None = None
     stage: str = "queued"
     progress: float = 0.0
@@ -166,7 +192,8 @@ class BotTask:
 
 class TelegramBot:
     def __init__(self, token, manager, data_dir, api_base=DEFAULT_API_BASE, max_dl_mb=200,
-                 api_id=None, api_hash=None):
+                 api_id=None, api_hash=None, progress_interval=30, queue_max=10,
+                 defaults=None):
         self.token = token
         self.manager = manager
         self.data_dir = data_dir
@@ -174,6 +201,9 @@ class TelegramBot:
         self.max_dl_mb = max(int(max_dl_mb or 200), 1)
         self.api_id = api_id
         self.api_hash = api_hash
+        self.progress_interval = max(5, min(300, int(progress_interval or 30)))
+        self.queue_max = max(1, min(100, int(queue_max or 10)))
+        self.global_defaults = dict(defaults or {})
         self.username = None
         self.base = f"{self.api_base}/bot{token}"
         self.last_error = None
@@ -185,6 +215,8 @@ class TelegramBot:
         self._prefs: dict[str, dict] = self._load_prefs()
         self._running: dict[int, BotTask] = {}
         self._procs: dict[int, asyncio.Task] = {}
+        self._queues: dict[int, list[tuple[BotTask, str, str]]] = {}
+        self._workers: dict[int, asyncio.Task] = {}
 
     # ---- telethon / large files ----
     @property
@@ -243,6 +275,11 @@ class TelegramBot:
             self._task = None
         for proc in list(self._procs.values()):
             proc.cancel()
+        for w in list(self._workers.values()):
+            w.cancel()
+        self._workers.clear()
+        self._queues.clear()
+        self._running.clear()
         if self._tg is not None:
             try:
                 await self._tg.disconnect()
@@ -274,7 +311,7 @@ class TelegramBot:
             logger.warning("save prefs failed: %s", exc)
 
     def prefs(self, chat_id: int) -> dict:
-        return {**DEFAULTS, **(self._prefs.get(str(chat_id)) or {})}
+        return {**DEFAULTS, **(self.global_defaults or {}), **(self._prefs.get(str(chat_id)) or {})}
 
     def set_pref(self, chat_id: int, key: str, value):
         self._prefs.setdefault(str(chat_id), {})[key] = value
@@ -522,23 +559,48 @@ class TelegramBot:
                 "Files over 20 MB need the MTProto client. Set api_id/api_hash in the admin panel.",
             )
             return
-        if chat_id in self._running:
-            await self._send(chat_id, "⏳ Another task is already running in this chat. Use /cancel first.")
-            return
 
         task = BotTask(chat_id=chat_id, message_id=int(message_id), kind=kind)
-        proc = asyncio.current_task()
-        if proc:
-            self._procs[chat_id] = proc
-        self._running[chat_id] = task
-        ticker = asyncio.create_task(self._ticker(task))
+        orig_name = self._orig_name(msg, kind)
+        queue = self._queues.setdefault(chat_id, [])
+        queue.append((task, file_id, orig_name))
+
+        # Cap per-chat queue depth (running task + waiting).
+        if len(queue) > self.queue_max:
+            popped = queue.pop()
+            if popped[0] is task:
+                await self._send(
+                    chat_id,
+                    f"Queue is full ({self.queue_max - 1} waiting). Wait for a task to finish, or use /cancel.",
+                )
+            return
+
+        # Tell the user where they stand in the queue.
+        if len(queue) > 1:
+            await self._send(
+                chat_id,
+                f"⏳ Added to the queue — position {len(queue)}. It will start automatically when the current task finishes.",
+            )
+
+        # Start exactly one worker per chat if none is active.
+        if chat_id not in self._workers or self._workers[chat_id].done():
+            self._workers[chat_id] = asyncio.create_task(self._chat_worker(chat_id, queue))
+
+    async def _chat_worker(self, chat_id: int, queue: list):
+        """Run one task at a time from this chat's queue."""
         try:
-            await self._process(task, file_id, self._orig_name(msg, kind))
+            while queue:
+                task, file_id, orig_name = queue.pop(0)
+                self._running[chat_id] = task
+                try:
+                    await self._process(task, file_id, orig_name)
+                finally:
+                    task.done = True
+                    self._running.pop(chat_id, None)
         finally:
-            task.done = True
-            ticker.cancel()
-            self._running.pop(chat_id, None)
-            self._procs.pop(chat_id, None)
+            if self._queues.get(chat_id) is queue:
+                self._queues.pop(chat_id, None)
+            self._workers.pop(chat_id, None)
 
     # ---- commands ----
     async def _command(self, chat_id, text, message_id):
@@ -594,7 +656,13 @@ class TelegramBot:
     async def _cancel_chat(self, chat_id):
         task = self._running.get(chat_id)
         if not task:
-            await self._send(chat_id, "Nothing to cancel.")
+            # Nothing running — if there's a queue, clear it.
+            queue = self._queues.get(chat_id)
+            if queue:
+                queue.clear()
+                await self._send(chat_id, "✅ Cleared the waiting queue.")
+            else:
+                await self._send(chat_id, "Nothing to cancel.")
             return
         task.cancelled = True
         if task.job_id:
@@ -605,6 +673,9 @@ class TelegramBot:
         proc = self._procs.get(chat_id)
         if proc:
             proc.cancel()
+        queue = self._queues.get(chat_id)
+        if queue:
+            queue.clear()
         await self._render(task, force=True, cancelled=True)
 
     # ---- menu ----
@@ -616,7 +687,7 @@ class TelegramBot:
             "• /settings — quality, size, audio, format, codec\n"
             "• /quick — one-tap fast 360p presets\n"
             "• /defaults — reset your settings\n"
-            "• /cancel — stop the running task\n"
+            "• /cancel — stop the running task or clear the queue\n"
             "• /setcode — set a custom FFmpeg command\n"
             "• /getcode — show commands and presets\n"
             "• /status — queue and bot status\n\n"
@@ -816,11 +887,14 @@ class TelegramBot:
 
     def _status_text(self) -> str:
         running = [t for t in self._running.values() if not t.done]
+        queued_total = sum(len(q) for q in self._queues.values())
         lines = [
             "📊 **VidPress status**",
             "",
-            f"• Active tasks: {len(running)}",
+            f"• Running: {len(running)}",
+            f"• Waiting in queue: {queued_total}",
             f"• Queue capacity: {self.manager.capacity()}",
+            f"• Progress update: every {self.progress_interval}s",
             f"• Large files (MTProto): {'on' if self.large_enabled else 'off'}",
             f"• Max download: {self.max_dl_mb} MB",
             f"• Bot: @{self.username or '—'}",
@@ -878,7 +952,7 @@ class TelegramBot:
         if task.status_id is None:
             return
         now = time.time()
-        if not force and now - task.last_edit < 30.0:
+        if not force and now - task.last_edit < self.progress_interval:
             return
         text = self._task_text(task)
         if text == task.last_text and not force:
@@ -891,9 +965,10 @@ class TelegramBot:
             task.last_text = text
 
     async def _ticker(self, task: BotTask):
+        interval = self.progress_interval
         try:
             while not task.done:
-                await asyncio.sleep(30.0)
+                await asyncio.sleep(interval)
                 await self._render(task)
         except asyncio.CancelledError:
             return

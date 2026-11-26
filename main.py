@@ -83,6 +83,26 @@ class BotController:
         raw = settings_store.get("telegram_api_hash") or os.getenv("TELEGRAM_API_HASH", "")
         return str(raw).strip() or None
 
+    def progress_interval(self) -> int:
+        raw = settings_store.get("progress_interval") or os.getenv("PROGRESS_INTERVAL", "30")
+        try:
+            return max(5, min(300, int(raw)))
+        except (TypeError, ValueError):
+            return 30
+
+    def queue_max(self) -> int:
+        raw = settings_store.get("queue_max") or os.getenv("BOT_QUEUE_MAX", "10")
+        try:
+            return max(1, min(100, int(raw)))
+        except (TypeError, ValueError):
+            return 10
+
+    def default_settings(self) -> dict:
+        d = settings_store.get("default_settings")
+        if isinstance(d, dict):
+            return d
+        return {}
+
     async def sync(self) -> None:
         token = self.token()
         if token and (self.bot is None or self.bot.token != token):
@@ -90,6 +110,7 @@ class BotController:
             self.bot = TelegramBot(
                 token, self.manager, DATA_DIR,
                 self.api_base(), self.max_dl_mb(), self.api_id(), self.api_hash(),
+                self.progress_interval(), self.queue_max(), self.default_settings(),
             )
             try:
                 await self.bot.start()
@@ -109,6 +130,7 @@ class BotController:
                 self.bot = TelegramBot(
                     token, self.manager, DATA_DIR,
                     self.api_base(), self.max_dl_mb(), self.api_id(), self.api_hash(),
+                    self.progress_interval(), self.queue_max(), self.default_settings(),
                 )
                 try:
                     await self.bot.start()
@@ -117,6 +139,9 @@ class BotController:
                     self.bot = None
             else:
                 self.bot.max_dl_mb = self.max_dl_mb()
+                self.bot.progress_interval = self.progress_interval()
+                self.bot.queue_max = self.queue_max()
+                self.bot.global_defaults = self.default_settings()
 
     async def stop(self) -> None:
         if self.bot is not None:
@@ -275,6 +300,9 @@ async def admin_get_settings(_=Depends(_admin_token)):
         "telegram_api_hash": (BOT.api_hash()[:4] + "…") if BOT.api_hash() else None,
         "telegram_api_hash_set": bool(BOT.api_hash()),
         "large_files_enabled": bool(BOT.api_id() and BOT.api_hash()),
+        "progress_interval": BOT.progress_interval(),
+        "queue_max": BOT.queue_max(),
+        "default_settings": BOT.default_settings(),
         "bot": BOT.info(),
     }
 
@@ -307,6 +335,25 @@ async def admin_put_settings(payload: dict, _=Depends(_admin_token)):
             settings_store.set("telegram_api_hash", raw)
         else:
             settings_store.delete("telegram_api_hash")
+    if "progress_interval" in payload:
+        try:
+            interval = max(5, min(300, int(payload.get("progress_interval"))))
+            settings_store.set("progress_interval", interval)
+        except (TypeError, ValueError):
+            pass
+    if "queue_max" in payload:
+        try:
+            qm = max(1, min(100, int(payload.get("queue_max"))))
+            settings_store.set("queue_max", qm)
+        except (TypeError, ValueError):
+            pass
+    if "default_settings" in payload:
+        raw = payload.get("default_settings")
+        if isinstance(raw, dict):
+            clean = {k: v for k, v in raw.items() if k in ("preset", "dimension", "audio", "format", "codec", "fps", "custom")}
+            settings_store.set("default_settings", clean)
+        else:
+            settings_store.delete("default_settings")
     await BOT.sync()
     return {"ok": True, "bot": BOT.info()}
 
