@@ -68,9 +68,18 @@ class Job:
         d.mkdir(parents=True, exist_ok=True)
 
         async def execute(active_plan) -> bool:
-            ext = {"h264": "mp4", "hevc": "mp4", "av1": "mp4", "vp9": "webm"}[active_plan.video_codec]
+            ext = active_plan.container or "mp4"
             out = d / f"compressed.{ext}"
-            self.cmd = build_command(active_plan, self.input_meta, str(self.src), str(out), pass_no=1)
+            if active_plan.custom:
+                import shlex
+                self.cmd = (
+                    ["ffmpeg", "-y", "-v", "error", "-progress", "pipe:1", "-nostats",
+                     "-i", str(self.src)]
+                    + shlex.split(active_plan.options.custom_cmd)
+                    + [str(out)]
+                )
+            else:
+                self.cmd = build_command(active_plan, self.input_meta, str(self.src), str(out), pass_no=1)
             passes = active_plan.passes
             total_passes = passes
             if self._cancelled:
@@ -85,7 +94,8 @@ class Job:
             async def run_pass(pass_no: int) -> bool:
                 if pass_no == 1 and passes == 2:
                     cmd = (
-                        ["ffmpeg", "-y", "-v", "error", "-i", str(self.src)]
+                        ["ffmpeg", "-y", "-v", "error", "-progress", "pipe:1", "-nostats",
+                         "-i", str(self.src)]
                         + ["-map", "0:v:0", "-c:v"]
                         + ["libx264" if active_plan.video_codec == "h264" else "libx265"]
                         + ["-preset", "medium", "-b:v", f"{active_plan.video_bitrate}", "-pass", "1"]
@@ -148,9 +158,19 @@ class Job:
         ok = await execute(plan)
 
         retried = False
-        if ok and plan.options.mode == "quality" and not self._cancelled and self.output_size >= self.original_size and plan.options.quality > 18:
+        if (
+            ok
+            and not plan.audio_only
+            and not plan.custom
+            and plan.options.mode == "quality"
+            and not self._cancelled
+            and self.output_size >= self.original_size
+            and plan.options.quality > 18
+        ):
             reduced = plan.options.quality - 35
             retry_opts = CompressOptions(**{**self.options, "quality": max(18, reduced)})
+            if retry_opts.crf:
+                retry_opts.crf = min(51, retry_opts.crf + 8)
             try:
                 retry_plan = build_plan(self.input_meta, retry_opts)
                 self.progress = 0.0
@@ -197,6 +217,19 @@ class JobManager:
         job_dir.mkdir(parents=True, exist_ok=True)
         src = job_dir / f"input{extension}"
         src.write_bytes(file_bytes)
+        job = Job(job_id, options, src, self.outputs / job_id)
+        self._jobs[job_id] = job
+        return job
+
+    def create_from_path(self, options: dict, path: str | Path, extension: str) -> Job:
+        """Adopt an existing file without reading it into memory (large videos)."""
+        import shutil
+
+        job_id = uuid.uuid4().hex[:12]
+        job_dir = self.uploads / job_id
+        job_dir.mkdir(parents=True, exist_ok=True)
+        src = job_dir / f"input{extension}"
+        shutil.move(str(path), str(src))
         job = Job(job_id, options, src, self.outputs / job_id)
         self._jobs[job_id] = job
         return job
