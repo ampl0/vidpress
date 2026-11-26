@@ -105,8 +105,8 @@ class TelegramBot:
             return self._tg
         from telethon import TelegramClient
         session = self.data_dir / "vidpress_bot.session"
-        client = TelegramClient(str(session), int(self.api_id), self.api_hash)
-        await client.start(bot_token=self.token, connection_retries=3)
+        client = TelegramClient(str(session), int(self.api_id), self.api_hash, connection_retries=3)
+        await client.start(bot_token=self.token)
         self._tg = client
         logger.info("telethon client connected for large files")
         return client
@@ -219,7 +219,7 @@ class TelegramBot:
                 await client.send_file(chat_id, str(path), caption=caption, force_document=False)
                 return
             except Exception as exc:  # noqa: BLE001
-                logger.warning("telethon send failed, falling back to bot api: %s", exc)
+                logger.exception("telethon send failed, falling back to bot api: %s", exc)
         form = aiohttp.FormData()
         form.add_field("chat_id", str(chat_id))
         form.add_field("caption", caption)
@@ -236,10 +236,12 @@ class TelegramBot:
                     return dest
                 raise RuntimeError("media not found via telethon")
             except Exception as exc:  # noqa: BLE001
-                logger.warning("telethon download failed, falling back to bot api: %s", exc)
+                logger.exception("telethon download failed, falling back to bot api: %s", exc)
         # fallback: standard Bot API
         data = await self._api("getFile", json_body={"file_id": file_id})
-        fp = data["result"].get("file_path")
+        if not data.get("ok"):
+            raise RuntimeError(data.get("description") or "getFile failed")
+        fp = (data.get("result") or {}).get("file_path")
         if not fp:
             raise RuntimeError("no file_path")
         url = f"{self.api_base}/file/bot{self.token}/{fp}"
