@@ -31,6 +31,27 @@ PRESETS = {
     "medium": {"label": "Balanced", "crf": 28, "speed": "fast", "quality": 62},
     "low": {"label": "Small Size", "crf": 32, "speed": "veryfast", "quality": 42},
     "ultra": {"label": "Ultra Small", "crf": 38, "speed": "ultrafast", "quality": 28},
+    "fast": {"label": "⚡ Fast", "crf": 30, "speed": "ultrafast", "quality": 40},
+    "superfast": {"label": "🚀 Super Fast", "crf": 36, "speed": "ultrafast", "quality": 30},
+}
+
+# One-tap bundles aimed at short clips finishing in roughly 30–60 seconds.
+QUICK_PRESETS = {
+    "superfast": {
+        "label": "🚀 Super Fast 360p", "preset": "superfast", "dimension": "360",
+        "audio": "aac_48", "format": "mp4", "codec": "h264", "fps": 24,
+        "hint": "ultrafast · CRF 36 · 24fps · AAC 48k",
+    },
+    "fast": {
+        "label": "⚡ Fast 360p", "preset": "fast", "dimension": "360",
+        "audio": "aac_64", "format": "mp4", "codec": "h264", "fps": 30,
+        "hint": "ultrafast · CRF 30 · 30fps · AAC 64k",
+    },
+    "small": {
+        "label": "🗜 Small 360p", "preset": "low", "dimension": "360",
+        "audio": "aac_64", "format": "mp4", "codec": "h264", "fps": 30,
+        "hint": "veryfast · CRF 32 · 30fps · AAC 64k",
+    },
 }
 
 DIMENSIONS = {
@@ -54,6 +75,7 @@ AUDIO = {
     "mp3_96": {"codec": "mp3", "bitrate": 96, "label": "MP3 96k"},
     "mp3_128": {"codec": "mp3", "bitrate": 128, "label": "MP3 128k"},
     "mp3_192": {"codec": "mp3", "bitrate": 192, "label": "MP3 192k"},
+    "aac_48": {"codec": "aac", "bitrate": 48, "label": "AAC 48k"},
     "aac_64": {"codec": "aac", "bitrate": 64, "label": "AAC 64k"},
     "aac_96": {"codec": "aac", "bitrate": 96, "label": "AAC 96k"},
     "aac_128": {"codec": "aac", "bitrate": 128, "label": "AAC 128k"},
@@ -69,6 +91,7 @@ DEFAULTS = {
     "audio": "aac_96",
     "format": "mp4",
     "codec": "h264",
+    "fps": 0,
     "custom": "",
 }
 
@@ -524,6 +547,8 @@ class TelegramBot:
             await self._send(chat_id, self._welcome_text(chat_id), self._menu_keyboard(chat_id))
         elif cmd == "/settings":
             await self._send(chat_id, self._menu_text(chat_id), self._menu_keyboard(chat_id))
+        elif cmd == "/quick":
+            await self._send(chat_id, self._quick_text(), self._quick_keyboard())
         elif cmd == "/defaults":
             self._prefs.pop(str(chat_id), None)
             self._save_prefs()
@@ -589,6 +614,7 @@ class TelegramBot:
             "Send a video or audio file and I'll compress or convert it.\n\n"
             "**Commands**\n"
             "• /settings — quality, size, audio, format, codec\n"
+            "• /quick — one-tap fast 360p presets\n"
             "• /defaults — reset your settings\n"
             "• /cancel — stop the running task\n"
             "• /setcode — set a custom FFmpeg command\n"
@@ -603,9 +629,11 @@ class TelegramBot:
         dim = DIMENSIONS.get(str(p["dimension"]), DIMENSIONS["480"])
         audio = AUDIO.get(p["audio"], AUDIO["aac_96"])
         custom = " · custom" if p.get("custom") else ""
+        fps = int(p.get("fps") or 0)
+        dim_label = f"{dim['label']} · {fps}fps" if fps else dim["label"]
         return (
             f"**Current:** {preset['label']} (CRF {preset['crf']})\n"
-            f"{dim['label']} · {audio['label']} · {FORMATS.get(p['format'], 'MP4')} · "
+            f"{dim_label} · {audio['label']} · {FORMATS.get(p['format'], 'MP4')} · "
             f"{CODECS.get(p['codec'], 'H.264')}{custom}"
         )
 
@@ -615,10 +643,12 @@ class TelegramBot:
         dim = DIMENSIONS.get(str(p["dimension"]), DIMENSIONS["480"])
         audio = AUDIO.get(p["audio"], AUDIO["aac_96"])
         custom = (p.get("custom") or "").strip()
+        fps = int(p.get("fps") or 0)
+        dim_label = f"{dim['label']} · {fps}fps" if fps else dim["label"]
         return (
             "⚙️ **Compression settings**\n\n"
             f"🎛 Preset: {preset['label']} (CRF {preset['crf']})\n"
-            f"📐 Size: {dim['label']}\n"
+            f"📐 Size: {dim_label}\n"
             f"🔊 Audio: {audio['label']}\n"
             f"📁 Format: {FORMATS.get(p['format'], 'MP4')}\n"
             f"🎞 Codec: {CODECS.get(p['codec'], 'H.264')}\n"
@@ -639,6 +669,7 @@ class TelegramBot:
                 [self._btn(f"🎛 {preset['label']}", "menu:preset"), self._btn(f"📐 {dim['label']}", "menu:size")],
                 [self._btn(f"🔊 {audio['label']}", "menu:audio"), self._btn(f"📁 {FORMATS.get(p['format'], 'MP4')}", "menu:format")],
                 [self._btn(f"🎞 {CODECS.get(p['codec'], 'H.264')}", "menu:codec"), self._btn("📊 Status", "menu:status")],
+                [self._btn("⚡ Quick presets", "menu:quick")],
                 [self._btn("⚙️ Custom command", "menu:custom")],
             ]
         }
@@ -681,6 +712,32 @@ class TelegramBot:
         rows.append([self._btn("« Back", "menu:back")])
         return title + "\n\nCurrent: **" + str(current) + "**", {"inline_keyboard": rows}
 
+    def _quick_text(self) -> str:
+        lines = [
+            "⚡ **Quick presets** — MP4 · 360p",
+            "",
+            "One tap sets everything for a fast result. Short clips usually",
+            "finish in roughly 30–60 seconds; longer videos take longer.",
+            "",
+        ]
+        for q in QUICK_PRESETS.values():
+            lines.append(f"• {q['label']} — {q['hint']}")
+        lines += ["", "Tap one to apply it, then send a video."]
+        return "\n".join(lines)
+
+    def _quick_keyboard(self):
+        rows = [[self._btn(q["label"], f"quick:{key}")] for key, q in QUICK_PRESETS.items()]
+        rows.append([self._btn("« Back", "menu:back")])
+        return {"inline_keyboard": rows}
+
+    def _apply_quick(self, chat_id: int, key: str) -> dict | None:
+        q = QUICK_PRESETS.get(key)
+        if not q:
+            return None
+        for field in ("preset", "dimension", "audio", "format", "codec", "fps"):
+            self.set_pref(chat_id, field, q[field])
+        return q
+
     async def _handle_callback(self, cq):
         chat_id = (cq.get("message", {}).get("chat") or {}).get("id")
         message_id = cq.get("message", {}).get("message_id")
@@ -708,6 +765,8 @@ class TelegramBot:
             if menu in ("preset", "size", "audio", "format", "codec"):
                 text, kb = self._selection(menu, chat_id)
                 await self._edit_message(chat_id, message_id, text, kb)
+            elif menu == "quick":
+                await self._edit_message(chat_id, message_id, self._quick_text(), self._quick_keyboard())
             elif menu == "status":
                 await self._edit_message(chat_id, message_id, self._status_text(),
                                          {"inline_keyboard": [[self._btn("« Back", "menu:back")]]})
@@ -731,6 +790,17 @@ class TelegramBot:
                 await self._edit_message(chat_id, message_id, self._menu_text(chat_id), self._menu_keyboard(chat_id))
             return
 
+        if data.startswith("quick:"):
+            key = data.split(":", 1)[1]
+            q = self._apply_quick(chat_id, key)
+            if q:
+                await self._edit_message(
+                    chat_id, message_id,
+                    f"✅ Applied **{q['label']}**\n\n" + self._menu_text(chat_id),
+                    self._menu_keyboard(chat_id),
+                )
+            return
+
         if data.startswith("set:"):
             try:
                 _, kind, value = data.split(":", 2)
@@ -740,6 +810,8 @@ class TelegramBot:
                      "format": FORMATS, "codec": CODECS}.get(kind, {})
             if value in valid:
                 self.set_pref(chat_id, "dimension" if kind == "size" else kind, value)
+                if kind == "preset":
+                    self.set_pref(chat_id, "fps", 0)
             await self._edit_message(chat_id, message_id, self._menu_text(chat_id), self._menu_keyboard(chat_id))
 
     def _status_text(self) -> str:
@@ -806,7 +878,7 @@ class TelegramBot:
         if task.status_id is None:
             return
         now = time.time()
-        if not force and now - task.last_edit < 3.0:
+        if not force and now - task.last_edit < 30.0:
             return
         text = self._task_text(task)
         if text == task.last_text and not force:
@@ -821,7 +893,7 @@ class TelegramBot:
     async def _ticker(self, task: BotTask):
         try:
             while not task.done:
-                await asyncio.sleep(2.0)
+                await asyncio.sleep(30.0)
                 await self._render(task)
         except asyncio.CancelledError:
             return
@@ -851,6 +923,7 @@ class TelegramBot:
             "audio_bitrate": audio["bitrate"],
             "max_width": 0,
             "max_height": dim["h"],
+            "max_fps": int(p.get("fps") or 0),
             "container": p["format"],
             "custom_cmd": (p.get("custom") or "").strip(),
             "single_pass": False,
@@ -938,6 +1011,8 @@ class TelegramBot:
                     else:
                         audio_label = "No audio"
                     dim_label = f"{plan.target_h}p" if plan.scale_changed else "Original"
+                    if plan.options.max_fps:
+                        dim_label += f" · {plan.options.max_fps}fps"
                 else:
                     dim_label = DIMENSIONS.get(str(p["dimension"]), DIMENSIONS["480"])["label"]
                     audio_label = AUDIO.get(p["audio"], AUDIO["aac_96"])["label"]

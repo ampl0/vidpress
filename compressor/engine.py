@@ -70,6 +70,7 @@ class CompressOptions:
     audio_bitrate: int = 0       # kbps; 0 = codec default
     max_width: int = 0           # 0 = keep
     max_height: int = 0          # 0 = keep
+    max_fps: int = 0             # 0 = keep source frame rate
     container: str = "auto"      # auto | mp4 | mkv | webm
     crf: int = 0                 # explicit CRF; 0 = derive from quality
     custom_cmd: str = ""         # raw ffmpeg args; overrides everything else
@@ -188,6 +189,9 @@ def build_plan(media: MediaInfo, opts: CompressOptions) -> JobPlan:
     if changed:
         plan.vf.append(f"scale={w}:{h}")
         plan.notes.append(f"scaled {media.video.width}×{media.video.height} → {w}×{h}")
+    if opts.max_fps and media.video.fps and media.video.fps > opts.max_fps + 0.01:
+        plan.vf.append(f"fps={opts.max_fps}")
+        plan.notes.append(f"fps {media.video.fps:.0f} → {opts.max_fps}")
     plan.vf.append("format=yuv420p")
 
     # --- video codec / container ---
