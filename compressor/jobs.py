@@ -28,6 +28,7 @@ class Job:
         self.progress = 0.0
         self.input_meta = None
         self.output_meta = None
+        self.plan = None
         self.cmd = []
         self.stderr = ""
         self.error = ""
@@ -63,6 +64,7 @@ class Job:
             self.error = f"Compression plan failed: {exc}"
             self.stage = "error"
             return
+        self.plan = plan
 
         d = self.dst_dir
         d.mkdir(parents=True, exist_ok=True)
@@ -183,6 +185,7 @@ class Job:
                 retried = False
             if retried:
                 self.options = retry_opts.__dict__
+                self.plan = retry_plan
                 self.retried = True
 
         if not ok and not retried:

@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import mimetypes
 import os
 import shutil
 import time
@@ -379,12 +380,15 @@ class TelegramBot:
         form.add_field("chat_id", str(chat_id))
         form.add_field("caption", _plain(caption))
         fh = path.open("rb")
+        ctype = mimetypes.guess_type(path.name)[0] or (
+            "video/mp4" if kind == "video" else "audio/mpeg"
+        )
         try:
             if kind == "audio":
-                form.add_field("audio", fh, filename=path.name)
+                form.add_field("audio", fh, filename=path.name, content_type=ctype)
                 await self._api("sendAudio", data=form, timeout=600)
             else:
-                form.add_field("video", fh, filename=path.name, content_type="video/mp4")
+                form.add_field("video", fh, filename=path.name, content_type=ctype)
                 await self._api("sendVideo", data=form, timeout=600)
         finally:
             try:
@@ -807,7 +811,9 @@ class TelegramBot:
         text = self._task_text(task)
         if text == task.last_text and not force:
             return
-        ok = await self._edit_message(task.chat_id, task.status_id, text, self._task_keyboard())
+        keyboard = ({"inline_keyboard": [[self._btn("🗑 Dismiss", "task:dismiss")]]}
+                    if task.stage == "cancelled" else self._task_keyboard())
+        ok = await self._edit_message(task.chat_id, task.status_id, text, keyboard)
         if ok:
             task.last_edit = now
             task.last_text = text
@@ -914,6 +920,9 @@ class TelegramBot:
             shutil.move(str(out), str(final))
 
             savings_line = _size_line(job.original_size, job.output_size)
+            plan = getattr(job, "plan", None)
+            p = self.prefs(chat_id)
+            preset = PRESETS.get(p["preset"], PRESETS["medium"])
             if task.kind == "audio":
                 caption = (
                     f"✅ **Conversion complete**\n"
@@ -921,16 +930,23 @@ class TelegramBot:
                     f"{savings_line}"
                 )
             else:
-                p = self.prefs(chat_id)
-                preset = PRESETS.get(p["preset"], PRESETS["medium"])
-                dim = DIMENSIONS.get(str(p["dimension"]), DIMENSIONS["480"])
-                audio = AUDIO.get(p["audio"], AUDIO["aac_96"])
+                if plan is not None:
+                    if plan.audio_copy:
+                        audio_label = "Copy original"
+                    elif plan.audio_codec:
+                        audio_label = f"{plan.audio_codec.upper()} {plan.audio_bitrate}k"
+                    else:
+                        audio_label = "No audio"
+                    dim_label = f"{plan.target_h}p" if plan.scale_changed else "Original"
+                else:
+                    dim_label = DIMENSIONS.get(str(p["dimension"]), DIMENSIONS["480"])["label"]
+                    audio_label = AUDIO.get(p["audio"], AUDIO["aac_96"])["label"]
                 caption = (
                     f"✅ **Compression complete**\n"
                     f"📄 `{final.name}`\n\n"
                     f"{savings_line}\n"
-                    f"🎛 {preset['label']} · 📐 {dim['label']}\n"
-                    f"🔊 {audio['label']} · 📁 {out_ext.upper()}"
+                    f"🎛 {preset['label']} · 📐 {dim_label}\n"
+                    f"🔊 {audio_label} · 📁 {out_ext.upper()}"
                 )
 
             await self._set_stage(task, "uploading")

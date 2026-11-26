@@ -204,6 +204,25 @@ def build_plan(media: MediaInfo, opts: CompressOptions) -> JobPlan:
     plan.container = opts.container if opts.container in ("mp4", "mkv", "webm") else VIDEO_CODECS[codec]["ext"]
     if opts.crf > 0:
         plan.crf = max(0, min(63, int(opts.crf) + CRF_OFFSET.get(codec, 0)))
+
+    # --- container/audio compatibility ---
+    if media.has_audio and opts.audio != "none":
+        src_audio = media.audio[0].codec
+        if plan.container == "webm":
+            if plan.audio_copy and src_audio not in ("opus", "vorbis"):
+                plan.audio_copy, plan.audio_codec = False, "opus"
+                plan.audio_bitrate = opts.audio_bitrate or 96
+            elif not plan.audio_copy and plan.audio_codec not in ("opus", "vorbis"):
+                plan.audio_codec = "opus"
+                plan.audio_bitrate = opts.audio_bitrate or 96
+        elif plan.container == "mp4":
+            if plan.audio_copy and src_audio not in ("aac", "mp3", "opus"):
+                plan.audio_copy, plan.audio_codec = False, "aac"
+                plan.audio_bitrate = opts.audio_bitrate or 128
+            elif not plan.audio_copy and plan.audio_codec == "vorbis":
+                plan.audio_codec = "aac"
+                plan.audio_bitrate = opts.audio_bitrate or 128
+
     duration = media.duration or 0.001
 
     if opts.mode == "size" and opts.target_size_mb > 0:
