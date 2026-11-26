@@ -204,5 +204,5 @@ bot constructor and stored in settings; no code change needed.
 
 ---
 
-*See [&oady-deployment-guide.md](cloady-deployment-guide.md) for how to ship this to
+*See [Cloady-deployment-guide.md](cloady-deployment-guide.md) for how to ship this to
 a Cloady app.*
